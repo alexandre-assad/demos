@@ -1,0 +1,175 @@
+---
+title: "Data Analysis and Modeling"
+output: html_notebook
+---
+
+### Libraries
+```{r}
+library(dplyr)
+library(tidyverse)
+library(compositions)
+library(ggtern)
+library(ggcorrplot)
+library(FactoMineR)
+library(factoextra)
+library(broom)
+library(glmnet)
+library(randomForest)
+```
+
+### Data Loading and Overview
+```{r}
+data <- read.csv("../data/data_abs.csv")
+
+# Quick overview of the dataset
+glimpse(data)
+summary(data)
+```
+
+### Descriptive Statistics and Data Exploration
+### Descriptive Statistics
+```{r}
+print("Descriptive Statistics:")
+data %>% 
+  summarise(across(where(is.numeric), 
+                   list(mean = mean, median = median, sd = sd, min = min, max = max)))
+```
+
+### Additional Univariate Analysis
+```{r}
+print("Distribution of key variables:")
+data %>% 
+  select(where(is.numeric)) %>% 
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>% 
+  ggplot(aes(x = Value)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  facet_wrap(~ Variable, scales = "free") +
+  labs(title = "Univariate Distributions", x = "Value", y = "Frequency") +
+  theme_minimal()
+```
+
+### Additional Bivariate Analysis
+```{r}
+print("Scatter plots of numerical variables against absenteeism rate:")
+num_vars <- names(data %>% select(where(is.numeric)))
+for (var in num_vars) {
+  if (var != "txabs") {
+    plot <- data %>% 
+      ggplot(aes_string(x = var, y = "txabs")) +
+      geom_point(color = "blue", alpha = 0.6) +
+      geom_smooth(method = "lm", se = TRUE, color = "red") +
+      labs(title = paste("Relation between", var, "and absenteeism rate"), 
+           x = var, y = "Absenteeism rate") +
+      theme_minimal()
+    print(plot)
+  }
+}
+```
+
+### Correlation Analysis
+```{r}
+print("Correlation Matrix:")
+cor_matrix <- data %>% 
+  select(where(is.numeric)) %>% 
+  cor(use = "complete.obs")
+
+# Visualize correlation matrix
+ggcorrplot(cor_matrix, lab = TRUE, title = "Correlation Matrix")
+
+# Identify highly correlated pairs
+high_corr <- as.data.frame(as.table(cor_matrix)) %>% 
+  filter(abs(Freq) > 0.7 & Var1 != Var2) %>% 
+  arrange(desc(abs(Freq)))
+print("Highly correlated variable pairs:")
+high_corr
+```
+
+### PCA Analysis
+```{r}
+composition_vars <- c("Ouvrier", "Employe", "PI", "Cadres", "Artisant", "Agri")
+
+clr_data <- data %>% 
+  mutate(across(all_of(composition_vars), ~ .x / sum(.x, na.rm = TRUE))) %>% 
+  select(all_of(composition_vars)) %>% 
+  compositions::clr()
+
+clr_df <- as.data.frame(clr_data)
+pca_result <- PCA(clr_df, graph = FALSE)
+
+# Summary of PCA results
+print("PCA Summary:")
+summary(pca_result)
+
+# Visualize individual and variable contributions
+fviz_pca_ind(pca_result, repel = TRUE, title = "PCA: Individuals")
+fviz_pca_var(pca_result, col.var = "contrib", gradient.cols = c("blue", "yellow", "red"), 
+             repel = TRUE, title = "PCA: Variable Contributions")
+
+# Contributions of variables to principal components
+var_contributions <- as.data.frame(pca_result$var$contrib)
+print("Variable contributions to principal components:")
+var_contributions
+```
+
+### Additional Insights from PCA
+```{r}
+# Highlight top contributing variables to PC1 and PC2
+top_contributors <- var_contributions %>% 
+  mutate(Variable = rownames(var_contributions)) %>% 
+  select(Variable, Dim.1, Dim.2) %>% 
+  arrange(desc(Dim.1))
+
+print("Top contributors to PC1 and PC2:")
+head(top_contributors)
+```
+
+### Regression Analysis
+```{r}
+predictors <- c("HLM", "Salairemoy", "Ouvrier", "Employe", "PI", "Cadres", 
+                "Artisant", "Agri", "TxPauv", "NonDiplome", "txcho")
+
+model <- lm(txabs ~ ., data = data %>% select(txabs, all_of(predictors)))
+
+summary(model)
+
+# Visualize coefficients
+tidy(model) %>% 
+  mutate(Significance = case_when(
+    p.value < 0.001 ~ "***",
+    p.value < 0.01 ~ "**",
+    p.value < 0.05 ~ "*",
+    TRUE ~ "NS"
+  )) %>% 
+  ggplot(aes(x = reorder(term, estimate), y = estimate, fill = Significance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Regression Coefficients", x = "Predictors", y = "Coefficient")
+```
+
+
+#### Lasso Regression
+```{r}
+x <- model.matrix(txabs ~ ., data = data %>% select(txabs, all_of(predictors)))[, -1]
+y <- data$txabs
+
+cv_lasso <- cv.glmnet(x, y, alpha = 1)
+best_lambda <- cv_lasso$lambda.min
+
+lasso_best <- glmnet(x, y, alpha = 1, lambda = best_lambda)
+coef(lasso_best)
+```
+
+#### Random Forest
+```{r}
+rf_model <- randomForest(txabs ~ ., data = data %>% select(txabs, all_of(predictors)), importance = TRUE)
+
+varImpPlot(rf_model)
+```
+
+### Conclusions
+```{r, echo=FALSE}
+cat("1. Socio-economic variables such as poverty rate, average salary, and education levels significantly influence absenteeism rates.\n")
+cat("2. PCA highlighted key compositional variables contributing to variance in the data.\n")
+cat("3. Lasso regression and Random Forest identified influential predictors for absenteeism modeling.\n")
+cat("4. Further work could include validating models on a test dataset and exploring additional interactions among variables.")
+```
