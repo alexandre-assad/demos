@@ -4,7 +4,7 @@ if (!require("cluster")) install.packages("cluster", lib = Sys.getenv("R_LIBS_US
 library(factoextra)
 library(cluster)
 
-data <- read.csv("data_abs.csv", stringsAsFactors = FALSE)
+data <- read.csv("../data/data_abs.csv")
 
 data_num <- data[ , sapply(data, is.numeric)]
 

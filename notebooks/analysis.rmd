@@ -15,6 +15,7 @@ library(factoextra)
 library(broom)
 library(glmnet)
 library(randomForest)
+library(cluster)
 ```
 
 ### Data Loading and Overview
@@ -164,6 +165,34 @@ coef(lasso_best)
 rf_model <- randomForest(txabs ~ ., data = data %>% select(txabs, all_of(predictors)), importance = TRUE)
 
 varImpPlot(rf_model)
+```
+
+## Clustering
+``` {r}
+data_num <- data[ , sapply(data, is.numeric)]
+
+data_num <- data.frame(lapply(data_num, function(x) {
+  if (any(is.na(x))) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+  }
+  return(x)
+}))
+
+data_scaled <- scale(data_num)
+
+fviz_nbclust(data_scaled, kmeans, method = "wss")
+
+fviz_nbclust(data_scaled, kmeans, method = "silhouette")
+
+set.seed(123)
+k <- 3
+km <- kmeans(data_scaled, centers = k, nstart = 25)
+
+fviz_cluster(km, data = data_scaled)
+
+data$Cluster <- km$cluster
+
+aggregate(data_num, by = list(Cluster = data$Cluster), FUN = mean)
 ```
 
 ### Conclusions
